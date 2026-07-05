@@ -1,0 +1,14 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+enum BUTTON
+{
+    BUTTON_UP,
+    BUTTON_RIGHT,
+    BUTTON_DOWN,
+    BUTTON_LEFT,
+    BUTTON_COUNT
+};
+
+
+#endif CONFIG_H
