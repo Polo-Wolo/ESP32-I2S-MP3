@@ -247,6 +247,7 @@ void loop(){
 
 #include <Button.h>
 #include <SDBrowser.h>
+#include <Timer.h>
 
 // --- Boutons ---
 Button btnUp(15, true, true);
@@ -262,7 +263,6 @@ void setup() {
 
     while(!browser.begin());
     // Branche directement les 4 boutons sur la navigation :
-    // Haut -> moveUp, Bas -> moveDown, Droite -> enter, Gauche -> back
     // browser.attachButtons(btnUp, btnDown, btnRight, btnLeft);
 
     btnUp.onPress([=]()     { browser.moveUp();     });
@@ -274,6 +274,8 @@ void setup() {
     btnDown.begin();
     btnRight.begin();
     btnLeft.begin();
+
+    timerInit();
 }
 
 void loop() {

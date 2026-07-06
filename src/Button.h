@@ -1,59 +1,66 @@
-#pragma once
 /*
  * Button.h
- * --------
- * Lib ESP32 (Arduino core) pour gérer un bouton poussoir avec :
- *   - Détection du front (appui/relâchement) via interruption GPIO (attachInterruptArg)
- *   - Anti-rebond (debounce) et distinction appui court / appui long via
- *     une machine à états rejouée automatiquement par un timer matériel (esp_timer)
- *   - Callbacks appelés en contexte "tâche timer" (donc en dehors de l'ISR brute),
- *     ce qui permet d'y faire du Serial.print, allouer de la mémoire, etc. sans risque.
  *
- * Aucune action bloquante n'est faite dans l'ISR : elle se contente de lever un
- * flag volatile. Tout le traitement (debounce + timing) est fait par le timer
- * périodique interne, qui appelle update().
+ * Gestion d'un bouton avec debounce + detection d'appui long, sur ESP32.
+ *
+ * Un seul timer materiel (esp_timer) est partage par TOUTES les
+ * instances de Button : chaque bouton s'enregistre au begin() dans
+ * une liste statique, et le timer commun appelle update() sur chacun
+ * d'eux a intervalle regulier (scan interval global, 5ms par defaut).
+ *
+ * L'interruption GPIO (une par pin) reste individuelle : elle ne sert
+ * qu'a lever un flag pour reveiller/valider l'etat plus vite si besoin,
+ * le vrai traitement (debounce, callbacks) se fait dans update().
  */
 
+#pragma once
+
 #include <Arduino.h>
-#include <functional>
 #include "esp_timer.h"
+#include <functional>
+
+#ifndef BUTTON_MAX_INSTANCES
+#define BUTTON_MAX_INSTANCES 16
+#endif
 
 class Button {
 public:
-    using Callback = std::function<void()>;
+    using Callback = std::function<void(void)>;
 
-    // pin        : broche GPIO du bouton
-    // activeLow  : true si le bouton relie la broche à la masse (GND) quand pressé (cas le plus courant)
-    // usePullup  : true pour activer la résistance de pull interne (PULLUP si activeLow, PULLDOWN sinon)
     Button(uint8_t pin, bool activeLow = true, bool usePullup = true);
     ~Button();
 
-    // Configure la broche, l'interruption GPIO et démarre le timer interne de scrutation.
     void begin();
-
-    // Désactive l'interruption et arrête le timer interne (libère les ressources).
     void end();
 
-    // --- Callbacks ---
-    void onPress(Callback cb);       // Appui court validé : bouton relâché avant le seuil "long press"
-    void onLongPress(Callback cb);   // Déclenché UNE fois, dès que le seuil long est atteint (bouton encore maintenu)
-    void onRelease(Callback cb);     // Relâchement du bouton, que l'appui ait été court ou long
+    void onPress(Callback cb);
+    void onLongPress(Callback cb);
+    void onRelease(Callback cb);
 
-    // --- Réglages ---
-    void setDebounceTime(uint16_t ms);     // Défaut : 30 ms
-    void setLongPressTime(uint16_t ms);    // Défaut : 800 ms
-    void setScanInterval(uint16_t ms);     // Défaut : 5 ms (période du timer interne, à régler avant begin())
+    void setDebounceTime(uint16_t ms);
+    void setLongPressTime(uint16_t ms);
 
     bool isPressed() const;
-    uint8_t getPin() const { return _pin; }
 
-    // Appelée automatiquement par le timer interne à chaque tick.
-    // Peut aussi être appelée manuellement si vous préférez tout gérer depuis loop()
-    // (dans ce cas, appelez end() avant, ou ne démarrez pas le timer).
-    void update();
+    // Intervalle de scan GLOBAL, partage par tous les boutons.
+    // A appeler avant le premier begin() pour avoir effet (le timer
+    // partage est cree au tout premier begin()).
+    static void setScanInterval(uint16_t ms);
 
 private:
-    enum class State : uint8_t {
+    bool readPressed() const;
+    void update(); // machine a etats, appelee par le timer partage
+
+    static void IRAM_ATTR gpioIsr(void* arg);
+    static void timerCallback(void* arg); // callback du timer partage
+    static void updateAll();              // appelle update() sur tous les boutons enregistres
+
+    static bool registerInstance(Button* btn);
+    static void unregisterInstance(Button* btn);
+    static void ensureSharedTimerStarted();
+    static void stopSharedTimerIfUnused();
+
+    enum class State {
         IDLE,
         DEBOUNCE_PRESS,
         PRESSED,
@@ -61,29 +68,29 @@ private:
         DEBOUNCE_RELEASE
     };
 
-    static void IRAM_ATTR gpioIsr(void* arg);
-    static void timerCallback(void* arg);
+    uint8_t _pin;
+    bool _activeLow;
+    bool _usePullup;
 
-    bool readPressed() const;
-
-    uint8_t  _pin;
-    bool     _activeLow;
-    bool     _usePullup;
-
-    volatile bool _gpioChanged; // Simple indicateur (utile pour debug/stat), pas indispensable au fonctionnement
+    volatile bool _gpioChanged;
 
     uint16_t _debounceMs;
     uint16_t _longPressMs;
-    uint16_t _scanIntervalMs;
 
-    State    _state;
+    State _state;
     uint32_t _stateEnterTime;
-    bool     _longFired;
+    bool _longFired;
+
+    bool _started;
 
     Callback _cbPress;
     Callback _cbLongPress;
     Callback _cbRelease;
 
-    esp_timer_handle_t _timerHandle;
-    bool _started;
+    // ---- Partage entre toutes les instances ----
+    static Button* _instances[BUTTON_MAX_INSTANCES];
+    static uint8_t _instanceCount;
+
+    static esp_timer_handle_t _sharedTimerHandle;
+    static uint16_t _scanIntervalMs;
 };

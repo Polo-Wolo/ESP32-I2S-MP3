@@ -1,17 +1,21 @@
 #include "Button.h"
 
+// ---- Membres statiques (partages entre toutes les instances) ----
+Button* Button::_instances[BUTTON_MAX_INSTANCES] = { nullptr };
+uint8_t Button::_instanceCount = 0;
+esp_timer_handle_t Button::_sharedTimerHandle = nullptr;
+uint16_t Button::_scanIntervalMs = 5;
+
 Button::Button(uint8_t pin, bool activeLow, bool usePullup)
     : _pin(pin),
       _activeLow(activeLow),
       _usePullup(usePullup),
       _gpioChanged(false),
       _debounceMs(30),
-      _longPressMs(2000),
-      _scanIntervalMs(5),
+      _longPressMs(700),
       _state(State::IDLE),
       _stateEnterTime(0),
       _longFired(false),
-      _timerHandle(nullptr),
       _started(false)
 {
 }
@@ -26,7 +30,10 @@ void Button::onRelease(Callback cb)   { _cbRelease = cb; }
 
 void Button::setDebounceTime(uint16_t ms)  { _debounceMs = ms; }
 void Button::setLongPressTime(uint16_t ms) { _longPressMs = ms; }
-void Button::setScanInterval(uint16_t ms)  { _scanIntervalMs = ms; }
+
+void Button::setScanInterval(uint16_t ms) {
+    _scanIntervalMs = ms; // pris en compte au prochain (re)demarrage du timer partage
+}
 
 bool Button::readPressed() const {
     bool raw = digitalRead(_pin);
@@ -44,10 +51,62 @@ void IRAM_ATTR Button::gpioIsr(void* arg) {
 }
 
 void Button::timerCallback(void* arg) {
-    // Ce callback s'exécute dans le contexte de la tâche esp_timer (pas dans l'ISR GPIO),
-    // il est donc sûr d'y appeler les callbacks utilisateur (std::function, Serial, etc.).
-    Button* self = static_cast<Button*>(arg);
-    self->update();
+    // Contexte de la tache esp_timer (pas l'ISR GPIO) : sans risque d'y
+    // parcourir tous les boutons et d'appeler leurs callbacks utilisateur.
+    updateAll();
+}
+
+void Button::updateAll() {
+    for (uint8_t i = 0; i < BUTTON_MAX_INSTANCES; i++) {
+        if (_instances[i] != nullptr) {
+            _instances[i]->update();
+        }
+    }
+}
+
+bool Button::registerInstance(Button* btn) {
+    for (uint8_t i = 0; i < BUTTON_MAX_INSTANCES; i++) {
+        if (_instances[i] == btn) return true; // deja enregistre
+    }
+    for (uint8_t i = 0; i < BUTTON_MAX_INSTANCES; i++) {
+        if (_instances[i] == nullptr) {
+            _instances[i] = btn;
+            _instanceCount++;
+            return true;
+        }
+    }
+    return false; // plus de place (augmente BUTTON_MAX_INSTANCES)
+}
+
+void Button::unregisterInstance(Button* btn) {
+    for (uint8_t i = 0; i < BUTTON_MAX_INSTANCES; i++) {
+        if (_instances[i] == btn) {
+            _instances[i] = nullptr;
+            _instanceCount--;
+            break;
+        }
+    }
+}
+
+void Button::ensureSharedTimerStarted() {
+    if (_sharedTimerHandle != nullptr) return; // deja demarre
+
+    esp_timer_create_args_t timerArgs = {};
+    timerArgs.callback = &Button::timerCallback;
+    timerArgs.arg = nullptr;
+    timerArgs.dispatch_method = ESP_TIMER_TASK;
+    timerArgs.name = "button_scan";
+
+    esp_timer_create(&timerArgs, &_sharedTimerHandle);
+    esp_timer_start_periodic(_sharedTimerHandle, (uint64_t)_scanIntervalMs * 1000ULL);
+}
+
+void Button::stopSharedTimerIfUnused() {
+    if (_instanceCount == 0 && _sharedTimerHandle != nullptr) {
+        esp_timer_stop(_sharedTimerHandle);
+        esp_timer_delete(_sharedTimerHandle);
+        _sharedTimerHandle = nullptr;
+    }
 }
 
 void Button::begin() {
@@ -61,30 +120,22 @@ void Button::begin() {
     _longFired = false;
     _stateEnterTime = millis();
 
-    // Interruption GPIO : détecte les fronts montants ET descendants.
+    // Interruption GPIO individuelle : detecte les fronts montants ET descendants.
     attachInterruptArg(digitalPinToInterrupt(_pin), &Button::gpioIsr, this, CHANGE);
 
-    // Timer périodique interne : rejoue la machine à états (debounce + long press)
-    // sans que l'utilisateur ait besoin d'appeler update() dans loop().
-    esp_timer_create_args_t timerArgs = {};
-    timerArgs.callback = &Button::timerCallback;
-    timerArgs.arg = this;
-    timerArgs.dispatch_method = ESP_TIMER_TASK;
-    timerArgs.name = "button_scan";
+    // Enregistrement dans la liste partagee, puis demarrage (une seule fois)
+    // du timer commun a tous les boutons.
+    registerInstance(this);
+    ensureSharedTimerStarted();
 
-    esp_timer_create(&timerArgs, &_timerHandle);
-    esp_timer_start_periodic(_timerHandle, (uint64_t)_scanIntervalMs * 1000ULL);
     _started = true;
 }
 
 void Button::end() {
     if (_started) {
         detachInterrupt(digitalPinToInterrupt(_pin));
-        if (_timerHandle) {
-            esp_timer_stop(_timerHandle);
-            esp_timer_delete(_timerHandle);
-            _timerHandle = nullptr;
-        }
+        unregisterInstance(this);
+        stopSharedTimerIfUnused();
         _started = false;
     }
 }
@@ -104,7 +155,7 @@ void Button::update() {
 
         case State::DEBOUNCE_PRESS:
             if (!pressed) {
-                // Rebond : on annule et on revient à IDLE
+                // Rebond : on annule et on revient a IDLE
                 _state = State::IDLE;
             } else if (now - _stateEnterTime >= _debounceMs) {
                 _state = State::PRESSED;
@@ -133,12 +184,12 @@ void Button::update() {
 
         case State::DEBOUNCE_RELEASE:
             if (pressed) {
-                // Rebond au relâchement : on revient à l'état précédent
+                // Rebond au relachement : on revient a l'etat precedent
                 _state = _longFired ? State::LONG_PRESSED : State::PRESSED;
             } else if (now - _stateEnterTime >= _debounceMs) {
                 _state = State::IDLE;
                 if (_cbRelease) _cbRelease();
-                if (!_longFired && _cbPress) _cbPress(); // appui court confirmé au relâchement
+                if (!_longFired && _cbPress) _cbPress(); // appui court confirme au relachement
             }
             break;
     }
