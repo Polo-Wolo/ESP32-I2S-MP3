@@ -12,7 +12,7 @@
 // OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 //
-#define MAIN_4
+#define MAIN_5
 
 
 #ifdef MAIN_1
@@ -260,11 +260,20 @@ SDBrowser browser(5, 18, 19, 23);
 void setup() {
     Serial.begin(115200);
 
-    if (browser.begin()) {
-        // Branche directement les 4 boutons sur la navigation :
-        // Haut -> moveUp, Bas -> moveDown, Droite -> enter, Gauche -> back
-        browser.attachButtons(btnUp, btnDown, btnRight, btnLeft);
-    }
+    while(!browser.begin());
+    // Branche directement les 4 boutons sur la navigation :
+    // Haut -> moveUp, Bas -> moveDown, Droite -> enter, Gauche -> back
+    // browser.attachButtons(btnUp, btnDown, btnRight, btnLeft);
+
+    btnUp.onPress([=]()     { browser.moveUp();     });
+    btnDown.onPress([=]()   { browser.moveDown();   });
+    btnRight.onPress([=]()  { browser.enter();      });
+    btnLeft.onPress([=]()   { browser.back();       });
+
+    btnUp.begin();
+    btnDown.begin();
+    btnRight.begin();
+    btnLeft.begin();
 }
 
 void loop() {

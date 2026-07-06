@@ -159,14 +159,14 @@ void SDBrowser::refresh() {
     printMenu();
 }
 
-void SDBrowser::attachButtons(Button& up, Button& down, Button& enterBtn, Button& backBtn) {
-    up.onPress([this]() { this->moveUp(); });
-    down.onPress([this]() { this->moveDown(); });
-    enterBtn.onPress([this]() { this->enter(); });
-    backBtn.onPress([this]() { this->back(); });
+// void SDBrowser::attachButtons(Button& up, Button& down, Button& enterBtn, Button& backBtn) {
+//     up.onPress([this]() { this->moveUp(); });
+//     down.onPress([this]() { this->moveDown(); });
+//     enterBtn.onPress([this]() { this->enter(); });
+//     backBtn.onPress([this]() { this->back(); });
 
-    up.begin();
-    down.begin();
-    enterBtn.begin();
-    backBtn.begin();
-}
+//     up.begin();
+//     down.begin();
+//     enterBtn.begin();
+//     backBtn.begin();
+// }

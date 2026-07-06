@@ -20,7 +20,6 @@
 #include <SPI.h>
 #include <SD.h>
 #include <vector>
-#include "Button.h" // Nécessaire uniquement pour attachButtons()
 
 extern "C" int ets_printf(const char* fmt, ...);
 
@@ -50,7 +49,7 @@ public:
 
     // Branche 4 boutons ButtonLib directement sur la navigation
     // (appelle button.begin() pour chacun, inutile de le refaire).
-    void attachButtons(Button& up, Button& down, Button& enterBtn, Button& backBtn);
+    // void attachButtons(Button& up, Button& down, Button& enterBtn, Button& backBtn); // POLO pour eviter de dépendre de ButtonLib dans le header, on mettra cette fonction dans le .cpp
 
     // Nombre maximum d'octets affichés lors de la lecture d'un fichier (défaut : 2048)
     void setMaxFilePrintBytes(size_t n) { _maxFilePrintBytes = n; }
