@@ -146,7 +146,6 @@ void loop()
 }
 
 #endif
-
 #ifdef MAIN_4
 
 #include "Arduino.h"
@@ -171,7 +170,10 @@ void loop()
 Audio audio;
 
 // Bouton câblé entre GPIO4 et GND (pull-up interne activée)
-Button btn1(22, true, true);
+Button btnUp(15, true, true);
+Button btnRight(2, true, true);
+Button btnDown(0, true, true);
+Button btnLeft(4, true, true);
 
 uint8_t volume = 10;
 
@@ -193,14 +195,17 @@ void decreaseVolume() {
 
 void setup() {
 
-    btn1.setDebounceTime(30);     // ms
-    btn1.setLongPressTime(800);   // ms
+    btnUp.setDebounceTime(30);      // ms
+    btnUp.setLongPressTime(800);    // ms
+    btnUp.onPress(increaseVolume);
+    // btnUp.onLongPress(decreaseVolume);
+    // btnUp.onRelease([]() { ets_printf("%u [BTN 1] Release\n", millis()); });
+    btnUp.begin();
 
-    btn1.onPress(increaseVolume);
-    btn1.onLongPress(decreaseVolume);
-    btn1.onRelease([]() { ets_printf("%u [BTN 1] Release\n", millis()); });
-
-    btn1.begin();
+    btnDown.setDebounceTime(30);      // ms
+    btnDown.setLongPressTime(800);    // ms
+    btnDown.onPress(decreaseVolume);
+    btnDown.begin();
 
     // Audio::audio_info_callback = my_audio_info;
     pinMode(SD_CS, OUTPUT);
@@ -217,6 +222,54 @@ void setup() {
 void loop(){
     vTaskDelay(1);
     audio.loop();
+}
+
+#endif
+#ifdef MAIN_5
+/*
+ * SDBrowser.ino
+ * -------------
+ * Explorateur de fichiers sur carte SD (bus SPI) piloté par 4 boutons
+ * (utilise ButtonLib pour la gestion des boutons en interruption).
+ *
+ * Navigation :
+ *   - Haut / Bas   : déplace la sélection dans le dossier courant
+ *   - Droite       : entre dans le dossier sélectionné, ou affiche le
+ *                    contenu du fichier sélectionné (les premiers octets)
+ *   - Gauche       : remonte au dossier parent
+ *
+ * L'affichage se fait via ets_printf(), une fonction ROM bas niveau qui
+ * écrit directement sur l'UART0, indépendamment du driver Serial (pas de
+ * buffer logiciel). C'est pour ça qu'on peut s'en servir même si Serial
+ * n'est pas (ou mal) initialisé. Attention : ets_printf ne supporte PAS
+ * %f (pas de flottants), seulement %s, %d, %u, %x, %c, %p.
+ */
+
+#include <Button.h>
+#include <SDBrowser.h>
+
+// --- Boutons ---
+Button btnUp(15, true, true);
+Button btnRight(2, true, true);
+Button btnDown(0, true, true);
+Button btnLeft(4, true, true);
+
+// --- Explorateur SD : cs, sck, miso, mosi ---
+SDBrowser browser(5, 18, 19, 23);
+
+void setup() {
+    Serial.begin(115200);
+
+    if (browser.begin()) {
+        // Branche directement les 4 boutons sur la navigation :
+        // Haut -> moveUp, Bas -> moveDown, Droite -> enter, Gauche -> back
+        browser.attachButtons(btnUp, btnDown, btnRight, btnLeft);
+    }
+}
+
+void loop() {
+    // Tout tourne en tâche de fond (ButtonLib gère l'interruption + le timer)
+    // delay(10);
 }
 
 #endif
