@@ -1,6 +1,11 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#define BUTTON_UP_PIN 32
+#define BUTTON_RIGHT_PIN 33
+#define BUTTON_DOWN_PIN 34
+#define BUTTON_LEFT_PIN 35
+
 enum BUTTON
 {
     BUTTON_UP,
@@ -11,4 +16,4 @@ enum BUTTON
 };
 
 
-#endif CONFIG_H
+#endif // CONFIG_H
